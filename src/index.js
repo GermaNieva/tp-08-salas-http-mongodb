@@ -71,8 +71,12 @@ async function main() {
     });
   }
 
-  process.once("SIGINT", cerrar);
-  process.once("SIGTERM", cerrar);
+  process.once("SIGINT", function () {
+    cerrar("SIGINT");
+  });
+  process.once("SIGTERM", function () {
+    cerrar("SIGTERM");
+  });
 }
 
 async function cerrarConexion() {

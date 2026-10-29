@@ -13,12 +13,14 @@ const {
 const { manejarErrores, esRutaApi } = require("./middleware/errores");
 const { crearControladorReservas } = require("./controladores/reservas");
 const { crearRouterReservas } = require("./rutas/reservas");
+const { crearRouterReservasApi } = require("./rutas/reservas-api");
 
 function crearApp({ servicioReservas, formatoRegistro }) {
   const app = express();
 
   const controladorReservas = crearControladorReservas(servicioReservas);
   const reservasRouter = crearRouterReservas(controladorReservas);
+  const reservasApiRouter = crearRouterReservasApi(controladorReservas);
 
   // Vistas. __dirname aca es src/, por eso se sube un nivel.
   app.set("view engine", "ejs");
@@ -38,7 +40,9 @@ function crearApp({ servicioReservas, formatoRegistro }) {
   app.get("/", controladorReservas.mostrarInicio);
   app.get("/estado", controladorReservas.mostrarEstado);
 
-  // Se monta el router. Las rutas de adentro son relativas a /reservas.
+  // API JSON y sitio HTML: dos routers con el mismo controlador.
+  // Las rutas de adentro son relativas al lugar donde se montan.
+  app.use("/api/reservas", reservasApiRouter);
   app.use("/reservas", reservasRouter);
 
   // 404, al final de las rutas. En la API tambien responde JSON.

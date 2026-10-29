@@ -14,6 +14,11 @@ function esRutaApi(req) {
   return /^\/api(\/|\?|$)/.test(req.originalUrl);
 }
 
+// /estado no esta bajo /api, pero su contrato tambien es JSON.
+function respondeJson(req) {
+  return esRutaApi(req) || /^\/estado(\?|$)/.test(req.originalUrl);
+}
+
 function manejarErrores(error, req, res, next) {
   // Si ya se empezo a mandar la respuesta, solo Express puede cortarla.
   if (res.headersSent) {
@@ -52,7 +57,7 @@ function manejarErrores(error, req, res, next) {
     error.codigo ?? error.code ?? "",
   );
 
-  if (esRutaApi(req)) {
+  if (respondeJson(req)) {
     res.status(estado).json({
       error: mensaje,
       campos: esValidacion ? Object.keys(error.errors) : [],
