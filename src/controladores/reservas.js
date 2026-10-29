@@ -1,6 +1,7 @@
 // Controlador de reservas: convierte la solicitud y lo que devuelve el
-// servicio en una respuesta HTTP (vista, JSON, 404 o redireccion).
-// No guarda el arreglo ni sabe como se buscan los datos.
+// servicio en una respuesta HTTP (vista, JSON, 404, 201 o redireccion).
+// El servicio ahora es asincronico: cada operacion se espera con await.
+// Si una operacion falla, Express 5 lleva el error al middleware de errores.
 
 const {
   SALAS_PERMITIDAS,
@@ -10,28 +11,30 @@ const {
 // Fabrica del controlador. Recibe la unica instancia del servicio y todas
 // las funciones que devuelve trabajan sobre ella.
 function crearControladorReservas(servicioReservas) {
+  // ---------------- Sitio HTML ----------------
+
   // GET /
-  function mostrarInicio(req, res) {
+  async function mostrarInicio(req, res) {
     res.render("inicio", {
       titulo: "Reservas de salas de estudio",
-      cantidad: servicioReservas.contar(),
+      cantidad: await servicioReservas.contar(),
     });
   }
 
-  // GET /estado. No renderiza vistas ni depende de "seccion": devuelve JSON.
-  function mostrarEstado(req, res) {
+  // GET /estado. Mismo contrato que antes; el conteo sale de MongoDB.
+  async function mostrarEstado(req, res) {
     res.json({
       servicio: "activo",
-      reservas: servicioReservas.contar(),
+      reservas: await servicioReservas.contar(),
       solicitudId: res.locals.solicitudId,
     });
   }
 
   // GET /reservas
-  function listar(req, res) {
+  async function listar(req, res) {
     res.render("reservas/lista", {
       titulo: "Listado de reservas",
-      reservas: servicioReservas.listar(),
+      reservas: await servicioReservas.listar(),
     });
   }
 
@@ -46,10 +49,9 @@ function crearControladorReservas(servicioReservas) {
     });
   }
 
-  // GET /reservas/:id
-  function mostrarDetalle(req, res) {
-    const id = Number(req.params.id);
-    const reserva = servicioReservas.obtenerPorId(id);
+  // GET /reservas/:id. El id es un ObjectId en texto: ya no se usa Number().
+  async function mostrarDetalle(req, res) {
+    const reserva = await servicioReservas.obtenerPorId(req.params.id);
 
     if (!reserva) {
       res.status(404).render("no-encontrado", {
@@ -65,12 +67,39 @@ function crearControladorReservas(servicioReservas) {
     });
   }
 
-  // POST /reservas. Confia en el validador, no repite las comprobaciones.
-  function crear(req, res) {
-    servicioReservas.crear(req.reservaValidada);
-
-    // 302: el navegador pide de nuevo el listado con un GET.
+  // POST /reservas. Recien despues de guardar se redirige (302).
+  async function crear(req, res) {
+    await servicioReservas.crear(req.reservaValidada);
     res.redirect("/reservas");
+  }
+
+  // ---------------- API JSON ----------------
+
+  // GET /api/reservas y GET /api/reservas?sala=...
+  async function listarApi(req, res) {
+    res.json(await servicioReservas.listar(req.query.sala));
+  }
+
+  // GET /api/reservas/:id
+  async function obtenerApi(req, res) {
+    const reserva = await servicioReservas.obtenerPorId(req.params.id);
+
+    if (!reserva) {
+      res.status(404).json({ error: "Reserva no encontrada." });
+      return;
+    }
+
+    res.json(reserva);
+  }
+
+  // POST /api/reservas. 201 y Location, recien despues de la escritura.
+  async function crearApi(req, res) {
+    const reserva = await servicioReservas.crear(req.reservaValidada);
+
+    res
+      .location("/api/reservas/" + reserva.id)
+      .status(201)
+      .json(reserva);
   }
 
   return {
@@ -80,6 +109,9 @@ function crearControladorReservas(servicioReservas) {
     mostrarFormulario,
     mostrarDetalle,
     crear,
+    listarApi,
+    obtenerApi,
+    crearApi,
   };
 }
 

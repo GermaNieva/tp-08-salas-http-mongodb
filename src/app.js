@@ -1,5 +1,5 @@
-// Construye la aplicacion Express: vistas, pipeline global, rutas y 404.
-// No abre el puerto (eso lo decide index.js) ni toca el arreglo de reservas.
+// Construye la aplicacion Express: vistas, pipeline global, rutas, 404 y
+// manejo de errores. No abre el puerto ni se conecta a MongoDB.
 
 const path = require("node:path");
 const express = require("express");
@@ -10,6 +10,7 @@ const {
   crearIdentificadorSolicitud,
   medirDuracion,
 } = require("./middleware/solicitudes");
+const { manejarErrores, esRutaApi } = require("./middleware/errores");
 const { crearControladorReservas } = require("./controladores/reservas");
 const { crearRouterReservas } = require("./rutas/reservas");
 
@@ -40,13 +41,21 @@ function crearApp({ servicioReservas, formatoRegistro }) {
   // Se monta el router. Las rutas de adentro son relativas a /reservas.
   app.use("/reservas", reservasRouter);
 
-  // Pagina 404, al final de todo
+  // 404, al final de las rutas. En la API tambien responde JSON.
   app.use(function (req, res) {
+    if (esRutaApi(req)) {
+      res.status(404).json({ error: "Ruta no encontrada." });
+      return;
+    }
+
     res.status(404).render("no-encontrado", {
       titulo: "Página no encontrada",
       mensaje: "La dirección solicitada no existe.",
     });
   });
+
+  // Errores, despues de todo lo demas.
+  app.use(manejarErrores);
 
   return app;
 }
