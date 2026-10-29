@@ -1,408 +1,435 @@
-# Trabajo práctico 07
+# Trabajo práctico 08
 
-Persistencia inicial de reservas de salas con MongoDB Atlas y Mongoose.
+Endpoints persistentes de reservas de salas: el sitio HTML y una API JSON
+leen y escriben en MongoDB Atlas.
 
-## 1. Punto de partida
+## Origen de la copia
 
-Este proyecto, `tp-07-salas-mongodb`, es una copia de mi TP 06
-(`tp-06-salas-modular`), copiada sin `node_modules`, `.git` ni `.env`. El
-TP 06 quedó intacto en su carpeta y en su repositorio.
+`tp-08-salas-http-mongodb` es una copia de mi TP 07
+(`tp-07-salas-mongodb`), copiada sin `.git`, `node_modules`, `.env` ni la
+captura del TP anterior. El TP 07 quedó intacto en su carpeta y su
+repositorio.
 
-Antes de cambiar nada ejecuté la matriz HTTP del TP 06 sobre la copia y dio
-exactamente lo mismo, así que no hizo falta reparar nada.
+Antes de cambiar nada ejecuté la matriz HTTP del sitio (todavía en memoria)
+sobre la copia y dio igual que en el TP 06/07. La conexión con la base nueva
+también funcionó: `Conexión con MongoDB establecida.`.
 
-A la copia le agregué un **laboratorio de persistencia**: configuración,
-conexión, un modelo y programas de terminal para crear y listar reservas en
-MongoDB. El sitio web no cambió: sigue trabajando en memoria (ver la sección
-8).
-
-El historial de commits sigue los pasos de la clase:
+Los commits siguen los pasos de la clase:
 
 | Commit | Qué se hizo |
 | ------ | ----------- |
-| Paso 1 | Copia del TP 06 e instalación de Mongoose |
-| Paso 2 | `config/entorno.js`, `config/base-datos.js` y `scripts/comprobar-conexion.js` |
-| Paso 3 | Esquema y modelo `Reserva`, y `scripts/validar-reserva.js` (sin conexión) |
-| Paso 4 | `scripts/crear-reserva.js` |
-| Paso 5 | `scripts/listar-reservas.js` |
-| README y evidencia | Este documento |
+| Paso 1 | Copia del TP 07 y base `reservas_salas_u8` en la plantilla |
+| Paso 2 | Campo `estado` con default en el modelo y servicio asíncrono `reservas-mongo.js` |
+| Paso 3 | Sitio conectado a MongoDB: arranque con una sola conexión, controlador async, validación de tipos y middleware de errores |
+| Paso 4 | Router de la API, simulación de fallo 500, cierre ordenado y `/estado` con errores en JSON |
+| README | Este documento, colección de Postman y evidencia |
 
-## 2. Versiones y entorno
+## Versiones y Atlas
 
 | Herramienta | Versión |
 | ----------- | ------- |
 | Node.js | 24.11.1 |
 | npm | 11.6.2 |
-| Mongoose | 9.10.3 (exacta, `--save-exact`, como en el apunte) |
 | Express | 5.2.1 |
-| EJS | 6.0.1 |
-| express-ejs-layouts | 2.5.1 |
+| Mongoose | 9.10.3 |
+| EJS / express-ejs-layouts | 6.0.1 / 2.5.1 |
 | Morgan | 1.12.1 |
 | Prettier / ESLint | 3.9.10 / 10.13.0 |
 
-La base de datos está en **MongoDB Atlas, clúster gratuito Free (M0)**. Es el
-mismo clúster de las clases, con una base propia para este TP:
+La base de datos es **MongoDB Atlas Free (M0)**, el mismo clúster del TP 07,
+con una base nueva para esta unidad:
 
 | Base | Colección |
 | ---- | --------- |
-| `reservas_salas_u7` | `reservas` |
+| `reservas_salas_u8` | `reservas` |
 
-No instalé MongoDB localmente. No hace falta `dotenv`, porque las variables se
-cargan con la opción `--env-file` de Node.
+La base del TP 07 (`reservas_salas_u7`) no se borró ni se migró.
 
-## 3. Pasos desde una descarga nueva
+### Preparar Atlas desde cero
 
-### 3.1 Dependencias
+1. En [Atlas](https://cloud.mongodb.com), crear un clúster **Free / M0**, o
+   reutilizar el que ya existe (se admite uno por proyecto).
+2. **Database Access:** crear un usuario de base con contraseña y permiso de
+   lectura y escritura. No es la cuenta del panel.
+3. **Network Access:** agregar la IP actual (*Add My Current IP Address*) y
+   esperar a que figure como activa.
+4. **Connect → Drivers → Node.js:** copiar la cadena, poner la contraseña y
+   escribir `reservas_salas_u8` entre el host y el `?`.
+
+La base aparece sola con la primera escritura.
+
+## Entorno, DNS y comando de inicio
 
 ```
 npm install
+cp .env.example .env      # en PowerShell: Copy-Item .env.example .env
 ```
 
-### 3.2 Preparar Atlas (una sola vez)
-
-1. Entrar a [MongoDB Atlas](https://cloud.mongodb.com) y crear o elegir un
-   proyecto de estudio.
-2. **Clúster gratuito:** crear un clúster eligiendo **Free / M0** (no Flex ni
-   Dedicated), con cualquier proveedor y región disponibles. Si el proyecto ya
-   tiene uno Free, se reutiliza: se admite uno por proyecto.
-3. **Usuario de base de datos** (Database Access): crear un usuario con
-   contraseña y permiso de **lectura y escritura**. No es la cuenta con la que
-   se entra al panel de Atlas: es el usuario que usa Node.
-4. **IP permitida** (Network Access / IP Access List): agregar la IP pública
-   actual con *Add My Current IP Address* y esperar a que la regla figure como
-   activa. No abrir el acceso a cualquier dirección. Si cambiás de red, puede
-   que tengas que volver a agregarla.
-5. **URI para Node.js:** en el clúster, *Connect → Drivers → Node.js*, copiar
-   la cadena de conexión. Reemplazar usuario y contraseña, y escribir
-   `reservas_salas_u7` como nombre de base entre el host y el `?`. Conservar
-   las opciones que trae Atlas. Si la contraseña tiene caracteres reservados,
-   se codifican solo en esa parte (por ejemplo, `@` se escribe `%40`).
-
-La base y la colección no se crean a mano: aparecen con la primera escritura.
-
-### 3.3 Archivo de entorno
-
-```
-cp .env.example .env
-```
-
-(en PowerShell: `Copy-Item .env.example .env`)
-
-En `.env`, y **solo ahí**, reemplazar `USUARIO`, `CLAVE` y `HOST` por los
-datos reales:
+En `.env`, y solo ahí, reemplazar `USUARIO`, `CLAVE` y `HOST` por los datos
+reales:
 
 ```
 PORT=3000
 NODE_ENV=development
-MONGODB_URI=mongodb+srv://USUARIO:CLAVE@HOST/reservas_salas_u7?retryWrites=true&w=majority
+MONGODB_URI=mongodb+srv://USUARIO:CLAVE@HOST/reservas_salas_u8?retryWrites=true&w=majority
 ```
 
-Si la terminal ya tiene definida una variable `MONGODB_URI`, Node le da
-prioridad sobre el archivo.
+Con los marcadores de la plantilla **no se puede conectar**: `HOST` no es un
+servidor real.
 
-### 3.4 Comandos
+**Iniciar el servidor:**
 
-Todos se ejecutan desde la raíz del proyecto:
+```
+npm run start:local
+```
+
+(es lo mismo que `node --env-file=.env src/index.js`). El servidor se
+detiene con **Ctrl + C**.
+
+`npm start` solo funciona si la terminal ya tiene `MONGODB_URI` definida. Sin
+eso, avisa `Falta MONGODB_URI en el entorno.` y no abre el puerto.
+
+**DNS:** se mantiene en `src/config/base-datos.js` la corrección de clase,
+`dns.setServers(["8.8.8.8", "1.1.1.1"])`. Se ejecuta una sola vez, al cargar
+el módulo, y no en cada solicitud. En mi red (Windows 11, conexión hogareña)
+la conexión también funciona sin esa línea (lo probé en el TP 07), así que no
+hubo que hacer ningún ajuste.
+
+Otros comandos:
 
 | Para... | Comando |
 | ------- | ------- |
-| Probar la conexión (no escribe) | `node --env-file=.env scripts/comprobar-conexion.js` |
-| Probar las reglas del modelo (no conecta) | `node scripts/validar-reserva.js` |
-| Crear una reserva | `node --env-file=.env scripts/crear-reserva.js` |
-| Listar las reservas guardadas | `node --env-file=.env scripts/listar-reservas.js` |
-| Formatear | `npm run format` |
-| Revisar formato y ESLint | `npm run check` |
-| Sitio web (no necesita `.env`) | `npm start` |
-| Sitio web con `.env` | `npm run start:local` |
+| Probar la conexión | `node --env-file=.env scripts/comprobar-conexion.js` |
+| Simular un fallo 500 (no conecta) | `node scripts/simular-fallo-servicio.js` |
+| Formatear / revisar | `npm run format` / `npm run check` |
 
-El sitio se detiene con **Ctrl + C**. Los programas de `scripts/` terminan solos.
+Los programas del TP 07 (`crear-reserva.js` y `listar-reservas.js`) siguen
+funcionando y usan la base que indique la URI. No los importa el servidor.
 
-## 4. DNS y conexión
-
-`src/config/base-datos.js` tiene la corrección que se usó en clase, antes de
-conectar:
-
-```js
-dns.setServers(["8.8.8.8", "1.1.1.1"]);
-```
-
-Con una URI `mongodb+srv://`, el driver primero consulta al DNS los registros
-**SRV** (qué servidores forman el clúster) y **TXT** (opciones de conexión).
-Esta línea hace que esas consultas, **solo las de este proceso de Node**,
-usen los DNS públicos 8.8.8.8 y 1.1.1.1. No cambia el DNS de Windows, ni el
-del navegador, ni la autenticación, ni la lista de IPs de Atlas. Está en un
-solo archivo: no se repite en los scripts ni en el modelo.
-
-Cuando la conexión falla, los programas muestran **el tipo de error, el código
-DNS si es uno conocido y la operación de resolución**, y nunca la URI ni el
-mensaje completo del driver. Así se puede distinguir:
-
-| Lo que aparece | Qué significa | Qué revisar |
-| -------------- | ------------- | ----------- |
-| `ErrorDeConfiguracion` | Falta `MONGODB_URI` o no empieza con `mongodb://` / `mongodb+srv://` | El archivo `.env` |
-| `Código DNS/red: ENOTFOUND` + `Consulta DNS: querySrv` | El nombre del clúster no se pudo resolver | El HOST copiado de Atlas y el DNS |
-| `MongoServerError` + "Atlas rechazó el usuario o la contraseña" | Autenticación rechazada | Usuario y contraseña de la base |
-| `MongooseServerSelectionError` | No se llegó a ningún servidor en 5 s | IP permitida, clúster activo, Internet |
-
-Probado sin Atlas, con la plantilla `.env.example`, que tiene un HOST que no
-existe:
+## Estructura por capas
 
 ```
-$ node --env-file=.env.example scripts/comprobar-conexion.js
-No se pudo completar la conexión.
-  Tipo de error: Error
-  Código DNS/red: ENOTFOUND
-  Consulta DNS: querySrv
-  Revisar que el HOST de la URI sea el real copiado de Atlas.
-  Revisar MONGODB_URI, servidor, red y permisos.
+src/
+  index.js                  lee entorno, ESPERA la conexión, después escucha; cierre ordenado
+  app.js                    vistas, pipeline, routers, 404 y middleware de errores
+  config/
+    entorno.js              PORT, NODE_ENV y MONGODB_URI (sin cambios)
+    base-datos.js           DNS, conectar, desconectar, describir errores (sin cambios)
+  modelos/
+    reserva.js              esquema: agrega estado con default "pendiente"
+  servicios/
+    reservas-mongo.js       NUEVO: listar, obtenerPorId, contar, crear (async)
+    reservas.js             referencia del servicio en memoria: YA NO SE IMPORTA
+  controladores/
+    reservas.js             async: espera al servicio y responde HTML o JSON
+  rutas/
+    reservas.js             router HTML (/reservas)
+    reservas-api.js         NUEVO: router API (/api/reservas)
+  middleware/
+    solicitudes.js          ID BIB- y medición (sin cambios)
+    reservas.js             sección y validación de entrada (HTML y API)
+    errores.js              NUEVO: 400 / 500 sin trazas ni secretos
+scripts/                    laboratorio del TP 07 + simular-fallo-servicio.js
+views/, public/             sin cambios
+docs/                       colección de Postman y capturas
 ```
 
-**Resultado con Atlas en mi red (Windows 11, conexión hogareña):** con la
-corrección de DNS la conexión funcionó a la primera
-(`Conexión con MongoDB establecida.`) y **no hubo ningún fallo DNS** con el
-host real. Para saber si la línea era necesaria, hice además una prueba
-aparte sin `dns.setServers`, con el DNS predeterminado de la red. También
-conectó. O sea, en esta red la corrección no es imprescindible, pero la dejé
-porque es la conexión acordada en clase y no molesta. No probé otras redes,
-así que no afirmo que funcione en todas.
-
-## 5. Mapa de archivos, esquema, modelo y colección
-
 ```
-tp-07-salas-mongodb/
-  public/, views/              (sin cambios)
-  src/
-    index.js                   (solo cambió la importación: ./config/entorno)
-    app.js                     (sin cambios)
-    config/
-      entorno.js               (PORT, NODE_ENV y MONGODB_URI)
-      base-datos.js            (DNS, conectar, desconectar, describir errores)
-    modelos/
-      reserva.js               (nuevo: esquema y modelo Reserva)
-    rutas/, controladores/     (sin cambios)
-    servicios/                 (sin cambios: el sitio sigue en memoria)
-    middleware/                (sin cambios)
-  scripts/
-    comprobar-conexion.js      (conecta y cierra, no escribe)
-    validar-reserva.js         (valida con el modelo, no conecta)
-    crear-reserva.js           (crea una reserva por ejecución)
-    listar-reservas.js         (solo lee)
-  .env                         (local, NO se sube)
-  .env.example                 (plantilla con marcadores, sí se sube)
-  .gitignore                   (node_modules/ y .env)
-  eslint.config.js             (revisa src y scripts)
-  package.json, package-lock.json
+Solicitud -> app.js (pipeline) -> router HTML o API -> validarReserva (solo POST)
+          -> controlador (await) -> servicio (await) -> modelo -> MongoDB Atlas
+                                  <- objeto con id en texto <-
+          -> render / redirect 302 / json 201 / 404
+   si algo falla: -> middleware de errores -> 400 o 500
 ```
 
-`src/configuracion.js` del TP 06 se eliminó **después** de pasar su función a
-`src/config/entorno.js` y de cambiar la importación en `src/index.js`, que era
-la única. La función es la misma.
+- **El modelo** valida y persiste.
+- **El servicio** hace las operaciones y devuelve objetos simples con `id` en
+  texto. No conoce Express ni elige códigos HTTP.
+- **El controlador** espera al servicio y decide la respuesta.
+- **Los routers** asocian método y dirección.
 
-`leerConfiguracion` (puerto y Morgan) la usa el sitio. `leerUriMongo` la usan
-solamente los programas, a través de `base-datos.js`. Por eso `npm start`
-arranca aunque no exista `MONGODB_URI`.
+El HTML y la API usan **el mismo controlador y la misma instancia del
+servicio**, por eso ven los mismos documentos.
 
-Los programas importan `../src/config/base-datos` y `../src/modelos/reserva`.
-`base-datos.js` importa `./entorno`.
+### Qué dejó de importarse
 
-**Tres cosas distintas:**
+`src/index.js` ya no importa `servicios/reservas.js` (el arreglo en memoria)
+ni tiene la semilla de cuatro reservas. El archivo del servicio en memoria
+queda en el repositorio solo como referencia, pero nadie lo importa (lo
+comprobé con `grep`). Así no hay dos fuentes activas de reservas. Al arrancar
+no se insertan datos y al listar no se carga ninguna semilla.
 
-- **Esquema** (`reservaSchema`): el contrato. Dice qué campos tiene una
-  reserva, de qué tipo son y qué reglas cumplen. Funciona del lado de nuestra
-  aplicación. No configura reglas en el servidor de MongoDB para otros
-  programas que escriban en la misma base.
-- **Modelo** (`Reserva`): lo que se arma con `mongoose.model("Reserva",
-  reservaSchema)`. Ofrece las operaciones (`create`, `find`, `validate`
-  sobre un documento) y aplica el esquema.
-- **Colección** (`reservas`): donde MongoDB guarda los documentos. Está
-  declarada a mano con `{ collection: "reservas" }`, para no depender de cómo
-  Mongoose arma el plural.
+### Arranque, conexión y cierre
 
-Importar el modelo no conecta ni guarda nada.
+1. `leerConfiguracion()`: si `PORT` es inválido, termina con un mensaje.
+2. `await conectarBaseDatos()`: si falla (URI ausente, DNS, contraseña, IP),
+   salta al `catch`, muestra el diagnóstico sin la URI y **el puerto nunca se
+   abre**.
+3. `app.listen(...)`: recién ahí aparece `Servidor andando en ...`.
 
-### El `_id`
+El servidor mantiene **una sola conexión** mientras está encendido, a
+diferencia de los scripts, que conectan y cierran.
 
-Cada documento tiene un `_id` de tipo **ObjectId**, que se muestra como 24
-caracteres hexadecimales. Ya no se calcula un id consecutivo con
-`reduce` / "el más alto + 1". El `_id` se pasa a texto con `toString()` solo
-para mostrarlo.
+En Express 5 el callback de `listen` también se ejecuta cuando `listen`
+falla, con el error como argumento. Por eso adentro se revisa `error`: con el
+puerto ocupado, el programa muestra
+`No se pudo escuchar el puerto 3000: EADDRINUSE`, cierra la conexión y
+termina, en vez de decir que está disponible.
 
-**Que un objeto tenga `_id` no demuestra que se guardó.** Mongoose lo genera
-en memoria apenas se construye el documento, antes de hablar con la base.
-`scripts/validar-reserva.js` lo muestra: imprime un `_id` sin haberse
-conectado nunca. La prueba de que se guardó es otra ejecución, en otro
-proceso, que lo encuentre al consultar la base.
+Con **SIGINT** (Ctrl + C) o **SIGTERM**, `servidor.close()` deja de aceptar
+conexiones, espera las solicitudes en curso y recién después cierra MongoDB.
 
-## 6. Campos y reglas
+## Endpoints
 
-| Campo | Tipo | Reglas en el esquema |
-| ----- | ---- | -------------------- |
-| `estudiante` | String | `required`, `trim` |
-| `email` | String | `required`, `trim`, `match: /@/` |
-| `sala` | String | `required`, `enum`: Sala Norte, Sala Sur, Sala Multimedia |
-| `fecha` | String | `required`, `trim` (vacío o solo espacios se rechaza) |
-| `turno` | String | `required`, `enum`: Mañana, Tarde, Noche |
-| `personas` | Number | `required`, `min: 1`, `max: 6`, `validate` con `Number.isInteger` |
+| Método y dirección | Resultado |
+| ------------------ | --------- |
+| `GET /api/reservas` | 200 y arreglo (vacío es válido) |
+| `GET /api/reservas?sala=Sala%20Norte` | 200 y solo las de esa sala (igualdad exacta) |
+| `GET /api/reservas/:id` | 200 y la reserva; 400 si el id está mal formado; 404 si no existe |
+| `POST /api/reservas` | 201, la reserva guardada y cabecera `Location`; 400 si es inválida |
+| `GET /`, `GET /estado` | Inicio y JSON de estado; el conteo sale de MongoDB |
+| `GET /reservas`, `GET /reservas/nueva`, `GET /reservas/:id` | Sitio HTML: listado, formulario y detalle |
+| `POST /reservas` | Formulario: 302 a `/reservas` después de guardar; 400 si es inválido |
+| Otra dirección | 404 HTML; bajo `/api/` es 404 JSON |
 
-Las listas de salas y turnos se importan de `src/middleware/reservas.js`, así
-el formulario del sitio y el modelo usan exactamente las mismas.
+No hay PUT, PATCH ni DELETE. Este servidor no está pensado para publicarse
+en Internet: todavía no tiene autenticación ni protecciones.
 
-`validate: { validator: Number.isInteger }` recibe la función sin llamarla.
-Mongoose la ejecuta sobre el valor ya convertido: `2.5` está dentro del rango
-1-6, pero no es entero, y por eso se rechaza.
+### Representación JSON
 
-**Conversión no es validación:** Mongoose convierte `"4"` (texto numérico) a
-`4` y lo acepta. `"tres"` no se puede convertir y falla con un `CastError`
-antes de llegar a las reglas.
-
-Reglas comprobadas sin conexión, con el modelo y `validate()`:
-
-| Caso | Resultado |
-| ---- | --------- |
-| Datos válidos | Acepta (`Datos válidos; todavía no se guardó nada`) |
-| Estudiante `""` o `"   "` | `ValidationError` en `estudiante`: "El nombre del estudiante es obligatorio." |
-| Email sin `@` | `ValidationError` en `email`: "El email tiene que tener una arroba." |
-| Sala `Sala Este` | `ValidationError` en `sala`: "La sala Sala Este no está permitida." |
-| Turno `Madrugada` | `ValidationError` en `turno`: "El turno Madrugada no está permitido." |
-| Fecha `"  "` | `ValidationError` en `fecha`: "La fecha es obligatoria." |
-| Personas 0 / 7 | `ValidationError` en `personas`: mínimo 1 / máximo 6 |
-| Personas 2.5 | `ValidationError` en `personas`: "...tiene que ser un número entero." |
-| Personas `"abc"` | `ValidationError` con un `CastError` en `personas` (no se pudo convertir) |
-| Personas `"4"` | Acepta y lo guarda como número 4 |
-| Estudiante `"  Valentina Ríos  "` | Acepta y lo recorta a `"Valentina Ríos"` |
-
-**Lo que todavía no se controla:**
-- que el email sea válido de verdad (solo se pide una `@`);
-- que la fecha sea una fecha real o futura (es texto);
-- que dos reservas se superpongan en la misma sala, fecha y turno;
-- el cupo total de una sala;
-- las reservas repetidas: correr `crear-reserva.js` dos veces crea **dos
-  documentos distintos**, con distinto `_id`, aunque tengan los mismos campos.
-  No hay índice único. Lo dejo así a propósito y no borro los repetidos.
-
-## 7. Matriz de pruebas y evidencia de persistencia
-
-Todo se ejecutó contra Atlas Free, base `reservas_salas_u7`, colección
-`reservas`, con `node --env-file=.env scripts/...`. Para los casos inválidos
-cambié en `crear-reserva.js` **un solo campo por vez**, lo ejecuté, volví a
-listar y lo restauré con `git checkout` antes del siguiente. Al terminar,
-`git status` no mostraba cambios en el programa, que quedó con el ejemplo
-válido.
-
-| Caso | Esperado | Observado | Cantidad antes → después |
-| ---- | -------- | --------- | ------------------------ |
-| Conexión válida | Confirmación y fin del proceso | `Conexión con MongoDB establecida.`, salida 0 | - |
-| Fallo DNS | Registrar código/operación | **No ocurrió** con el host real (ver sección 4). Con el HOST falso de la plantilla: `ENOTFOUND` en `querySrv` | - |
-| Variable vacía (`MONGODB_URI=`) | Fallo de configuración, sin éxito | `ErrorDeConfiguracion: Falta MONGODB_URI en el entorno.`, salida 1 | - |
-| Contraseña incorrecta | Fallo de autenticación | `MongoServerError`, "Atlas rechazó el usuario o la contraseña de la base.", salida 1. Después la URI válida volvió a conectar | - (no se crea nada) |
-| Colección vacía | Cantidad 0 sin error | `Reservas recuperadas: 0`, salida 0 (la base era nueva) | 0 |
-| Reserva válida | Se guarda y devuelve `_id` | `Reserva guardada en MongoDB.` `_id: 6ae28fbd8a836f930da43af4` | 0 → 1 |
-| Consulta desde proceso nuevo | Recupera ese `_id` | Aparece `6ae28fbd8a836f930da43af4`, Valentina Ríos, Sala Multimedia | 0 → 1 |
-| Segunda consulta | No agrega registros | `Reservas recuperadas: 1` | 1 → 1 |
-| Estudiante vacío (`""`) | Rechazo | `ValidationError`, campo `estudiante` (regla), salida 1 | 1 → 1 |
-| Email sin @ | Rechazo | `ValidationError`, campo `email` (regla) | 1 → 1 |
-| Sala no permitida (`Sala Este`) | Rechazo | `ValidationError`, campo `sala` (regla) | 1 → 1 |
-| Turno no permitido (`Madrugada`) | Rechazo | `ValidationError`, campo `turno` (regla) | 1 → 1 |
-| Fecha vacía (`"   "`) | Rechazo | `ValidationError`, campo `fecha` (regla) | 1 → 1 |
-| Personas 0 | Rechazo | `ValidationError`, campo `personas` (regla) | 1 → 1 |
-| Personas 7 | Rechazo | `ValidationError`, campo `personas` (regla) | 1 → 1 |
-| Personas 2.5 | Rechazo | `ValidationError`, campo `personas` (regla) | 1 → 1 |
-| Personas `"tres"` | Rechazo de conversión | `ValidationError`, campo `personas` (**no se pudo convertir**: `CastError`) | 1 → 1 |
-
-Para la contraseña incorrecta no modifiqué el `.env` real. Hice una copia
-temporal donde cambié solamente la contraseña por `claveIncorrecta123`, la
-usé con `--env-file` y la borré. No cambié la contraseña del usuario en Atlas.
-En ese momento la terminal no tenía `MONGODB_URI` definida, así que se usó el
-archivo.
-
-### Evidencia de persistencia entre procesos
-
-Cada línea es un proceso de Node distinto, que termina antes de que empiece
-el siguiente:
-
-```
-$ node --env-file=.env scripts/listar-reservas.js
-Reservas recuperadas: 0
-
-$ node --env-file=.env scripts/crear-reserva.js
-Reserva guardada en MongoDB.
-_id: 6ae28fbd8a836f930da43af4
-
-$ node --env-file=.env scripts/listar-reservas.js
-┌─────────┬────────────────────────────┬──────────────────┬───────────────────┬──────────────┬─────────┬──────────┐
-│ (index) │ id                         │ estudiante       │ sala              │ fecha        │ turno   │ personas │
-├─────────┼────────────────────────────┼──────────────────┼───────────────────┼──────────────┼─────────┼──────────┤
-│ 0       │ '6ae28fbd8a836f930da43af4' │ 'Valentina Ríos' │ 'Sala Multimedia' │ '2026-11-09' │ 'Tarde' │ 3        │
-└─────────┴────────────────────────────┴──────────────────┴───────────────────┴──────────────┴─────────┴──────────┘
-Reservas recuperadas: 1
-
-$ node --env-file=.env scripts/listar-reservas.js
-Reservas recuperadas: 1
+```json
+{
+  "id": "6ae295b8b704934978e16d39",
+  "estudiante": "Ana Ejemplo",
+  "email": "ana@example.com",
+  "sala": "Sala Norte",
+  "fecha": "2026-10-21",
+  "turno": "Mañana",
+  "personas": 2,
+  "estado": "pendiente"
+}
 ```
 
-El proceso que creó la reserva ya había terminado cuando otro proceso la
-encontró con el mismo `_id`. Eso es lo que demuestra que quedó guardada en
-MongoDB y no en la memoria de Node. La segunda consulta no cambia la cantidad,
-porque listar no escribe.
+`id` es el `_id` (ObjectId) pasado a texto. La API no expone `_id` ni `__v`.
+En MongoDB el `_id` sigue siendo un ObjectId. Ya no se aplica `Number` al
+parámetro, porque `Number("6ae2...")` da `NaN`.
 
-Captura de Data Explorer en Atlas, con la base `reservas_salas_u7`, la
-colección `reservas` y el documento `6ae28fbd8a836f930da43af4`:
+Errores:
 
-![Data Explorer con la reserva 6ae28fbd8a836f930da43af4](docs/data-explorer.png)
+```json
+{ "error": "El email tiene que tener una arroba.", "campos": ["email"] }
+{ "error": "El identificador tiene que tener 24 caracteres hexadecimales.", "campos": [] }
+{ "error": "Reserva no encontrada." }
+{ "error": "No se pudo completar la operación. Probá de nuevo más tarde.", "campos": [] }
+```
 
-Solo se creó un documento. Si se corre `crear-reserva.js` otra vez, se crea
-otro con distinto `_id` y los mismos datos (ver la sección 6).
+## Modelo y entrada admitida
 
-### Continuidad del sitio
+| Campo | Regla |
+| ----- | ----- |
+| `estudiante` | String obligatorio, `trim` |
+| `email` | String obligatorio, `trim`, `match: /@/` |
+| `sala` | String obligatorio, `enum` Sala Norte / Sala Sur / Sala Multimedia |
+| `fecha` | String obligatorio, `trim` |
+| `turno` | String obligatorio, `enum` Mañana / Tarde / Noche |
+| `personas` | Number obligatorio, `min: 1`, `max: 6`, `validate: Number.isInteger` |
+| `estado` | String, `enum` pendiente / confirmada, **default `"pendiente"`** |
 
-Con `npm start` (sin `.env`) repetí la matriz HTTP del TP 06 y dio
-exactamente lo mismo:
+`estado` lo pone el servidor: el cliente no lo puede asignar al crear, y esta
+API no tiene forma de confirmar una reserva. El default no es autenticación
+ni autorización, y no modifica documentos viejos.
 
-| Comprobación | Resultado |
-| ------------ | --------- |
-| Inicio, `/estado` y listado | 200; `/estado` con 4 reservas y el ID `BIB-` |
-| Formulario válido | 302 a `/reservas`, el listado pasa a 5 (en memoria) |
-| Formulario inválido (vacío, sala, turno, email, personas 0/7/2.5) | 400, no crea |
-| POST sin cuerpo / `text/plain` | 400, no crea |
-| `GET /css/estilos.css` | 200 `text/css` |
-| `GET /reservas/999` y URL inexistente | 404 HTML |
+La validación ocurre en **dos lugares**:
 
-Las reservas del laboratorio no aparecen en el sitio, y está bien que no
-aparezcan (ver la sección siguiente).
+1. **`validarReserva`** (middleware), antes del controlador, para el
+   formulario y para la API:
+   - Los textos tienen que llegar como **texto**. Un número, un booleano, un
+     arreglo o un objeto en `estudiante`, `email`, `sala`, `fecha` o `turno`
+     cuenta como vacío.
+   - `personas` puede llegar como número (JSON) o como texto no vacío
+     (formulario). `true`, `[3]` o `{"n":3}` se rechazan, aunque `Number()`
+     los convertiría en `1` o `3`.
+   - Se arma `req.reservaValidada` copiando **solo los seis campos**.
+2. **El esquema de Mongoose**, que sigue validando todo al crear. Si algo
+   pasara el middleware, el `ValidationError` lo traduce el middleware de
+   errores a 400.
 
-### Calidad
+Además, el servicio copia otra vez los seis campos uno por uno, y nunca pasa
+`req.body` entero a Mongoose. Por eso un `estado` o un `_id` mandados por el
+cliente se ignoran.
 
-`npm run format` y `npm run check` revisan `src` y `scripts`. ESLint ahora
-incluye `files: ["src/**/*.js", "scripts/**/*.js"]` con las mismas reglas del
-TP 06. Resultado: `All matched files use Prettier code style!` y ESLint sin
-problemas.
+**Filtro:** el servicio arma el criterio a mano, `{ sala: "..." }`, y nunca
+usa `req.query` entero. Si `sala` llega repetida (arreglo) o vacía, responde
+400. Con el parser de consultas de Express 5, `?sala[$ne]=x` llega como una
+clave literal `"sala[$ne]"` y no como un operador, así que se ignora.
 
-## 8. Por qué el sitio sigue en memoria
+**Límites que todavía no se controlan:**
+- que el email sea válido de verdad;
+- que la fecha sea real o futura;
+- que dos reservas se superpongan;
+- el cupo de una sala;
+- los duplicados: enviar dos veces el mismo POST crea dos reservas.
 
-Hay **dos recorridos separados**, a propósito:
+No hay índice único.
 
-- El **sitio** (`npm start`) usa el servicio del TP 06: un arreglo en memoria
-  que arranca con 4 reservas y se pierde al reiniciar.
-- El **laboratorio** (`scripts/`) usa Mongoose: conecta, crea o lista
-  documentos en Atlas y cierra.
+## Matriz de resultados
 
-No cambié el servicio del sitio porque no es un reemplazo directo. El servicio
-actual es sincrónico: `listar()` devuelve un arreglo al instante. Una consulta a
-MongoDB devuelve una **promesa**. Si hoy pusiera `Reserva.find()` adentro del
-servicio, los controladores recibirían una promesa donde esperan un arreglo. El
-detalle además convierte `req.params.id` con `Number`, y eso no sirve para un
-`ObjectId`. También habría que abrir **una** conexión al arrancar el servidor
-y no conectar y desconectar en cada pedido, como hacen los scripts.
+Probé la API con un script que usa `fetch` de Node como cliente HTTP, y el
+formulario con `curl`, contra Atlas, base `reservas_salas_u8`. Después de
+cada rechazo conté las reservas con `GET /api/reservas`.
 
-Eso es lo que se aborda en la **unidad 8**: conectar las rutas con operaciones
-asíncronas de MongoDB, con controladores que esperan las promesas e ids de
-tipo ObjectId.
+| Caso | Esperado | Observado | Cantidad |
+| ---- | -------- | --------- | -------- |
+| Listado con la base nueva | 200, `[]` | `/estado` → `"reservas":0`; `/reservas` → "Todavía no hay ninguna sala reservada" | 0 |
+| Formulario inválido (email sin @) | 400 | 400, "El email tiene que tener una arroba.", conserva `value="Tomás Paz"` | 0 → 0 |
+| Formulario sin cuerpo / `text/plain` | 400 | 400, "Hay que completar todos los campos." | 0 → 0 |
+| Formulario `personas=true` | 400 | 400, mensaje de personas | 0 → 0 |
+| Formulario válido | 302 | 302 → `/reservas`; aparece Tomás Paz | 0 → 1 |
+| Detalle HTML del creado | 200 | 200, "Reserva número 6ae29578f2687983a6e3ae21" | - |
+| `GET /reservas/1` (HTML) | 400 | 400, "Solicitud inválida" | - |
+| `GET /reservas/000…0` (HTML) | 404 | 404, "Reserva no encontrada" | - |
+| `POST /api/reservas` válido | 201 + Location | 201, `Location: /api/reservas/6ae295b8b704934978e16d39`, `estado: "pendiente"` | 1 → 2 |
+| GET a la Location | 200, mismo recurso | 200, mismo `id` y campos, sin `_id`/`__v` | - |
+| `GET /api/reservas/1` | 400 | 400 JSON | - |
+| `GET /api/reservas/no-es-un-id` | 400 | 400 JSON | - |
+| `GET /api/reservas/000000000000000000000000` | 404 | 404 `{"error":"Reserva no encontrada."}` | - |
+| `?sala=Sala%20Norte` | Solo coincidencias | 200, 2 resultados, todos Sala Norte | - |
+| `?sala=Sala%20Sur` (en ese momento no había) | `[]` | 200, `[]` | - |
+| `?sala=sala%20norte` (minúsculas) | Igualdad exacta | 200, `[]` | - |
+| `?sala=Sala%20Norte&sala=Sala%20Sur` | 400 | 400 "El filtro sala tiene que ser un solo texto." | - |
+| `?sala=` (vacía) | 400 | 400 | - |
+| `?sala[$ne]=x` | Sin operadores | 200, mismo resultado que sin filtro | - |
+| Estudiante vacío | 400 | 400, campos `["estudiante"]` | 2 → 2 |
+| Email sin @ | 400 | 400, campos `["email"]` | 2 → 2 |
+| Sala no permitida | 400 | 400, campos `["sala"]` | 2 → 2 |
+| Turno no permitido | 400 | 400, campos `["turno"]` | 2 → 2 |
+| Fecha vacía (`"   "`) | 400 | 400, campos `["fecha"]` | 2 → 2 |
+| Personas 0 / 7 / 2.5 / `"abc"` | 400 | 400 cada uno, campos `["personas"]` | 2 → 2 |
+| Personas `true` / `[3]` / `{"n":3}` | 400 | 400 cada uno, campos `["personas"]` | 2 → 2 |
+| Estudiante `123` / `["Ana"]` | 400 | 400, campos `["estudiante"]` | 2 → 2 |
+| POST sin cuerpo | 400 JSON | 400, los seis campos en `campos` | 2 → 2 |
+| POST `text/plain` | 400 JSON | 400 | 2 → 2 |
+| JSON mal formado | 400 JSON | 400 `{"error":"El cuerpo no es un JSON válido."}` | 2 → 2 |
+| Campos extra `estado: "confirmada"` y `_id` | El cliente no los asigna | 201 con `id` propio (`6ae295bbb704934978e16d3a`) y `estado: "pendiente"` | 2 → 3 |
+| Listar dos veces | Estable | 3 y 3 | 3 |
+| `/estado` | Conteo de MongoDB | `{"servicio":"activo","reservas":3,...}` | 3 |
+| CSS / inicio / ruta inexistente | 200 / 200 / 404 | 200 `text/css` / 200 / 404 HTML; `/api/no-existe` → 404 JSON | - |
+| Fallo inesperado (simulado) | 500 sin traza | 500 en API, HTML y `/estado`; el mensaje no publica la URI (ver abajo) | - |
+| Arranque con URI ausente | No abre el puerto | `ErrorDeConfiguracion: Falta MONGODB_URI`, salida 1, puerto cerrado | - |
+| Arranque con HOST falso | No abre el puerto | `ENOTFOUND` / `querySrv`, salida 1, puerto cerrado | - |
+| Arranque con el puerto ocupado | No anuncia disponible | `No se pudo escuchar el puerto 3000: EADDRINUSE`, salida 1 | - |
+| Cierre con SIGINT | Cierre ordenado | `Recibí SIGINT: cerrando el servidor...` → `Servidor detenido y conexión con MongoDB cerrada.`, salida 0 | - |
 
-## 9. Qué no se publica
+### Fallo inesperado (simulación controlada)
 
-- `.env` está en `.gitignore` y no se subió nunca. Solo está en el
-  repositorio `.env.example`, con los marcadores `USUARIO`, `CLAVE` y `HOST`.
-- Ningún programa imprime la URI ni el mensaje completo del driver.
-- No hay credenciales en el código, en el README ni en las capturas.
-- Los datos de las reservas son ficticios.
-- `node_modules/` no se sube; `package-lock.json` sí.
+`scripts/simular-fallo-servicio.js` arma la aplicación real con un servicio
+**falso** que siempre falla. El error trae una URI inventada con la palabra
+"secreto", como si la base dejara de responder. No conecta a Atlas ni toca a
+ningún usuario.
+
+```
+GET  /api/reservas                          -> 500 | {"error":"No se pudo completar la operación. Probá de nuevo más tarde.","campos":[]} | ¿publica secretos o traza?: no
+GET  /api/reservas/000000000000000000000000 -> 500 | (mismo JSON) | no
+POST /api/reservas                          -> 500 | (mismo JSON) | no
+GET  /reservas                              -> 500 | (HTML) Error del servicio | no
+GET  /estado                                -> 500 | (mismo JSON) | no
+Resultado: todas las respuestas son 500 y no publican la URI.
+```
+
+En la terminal del servidor solo queda
+`Solicitud fallida: BIB-0001 MongooseServerSelectionError`: el ID, el tipo y
+un código, nunca el mensaje completo.
+
+El cierre con SIGINT lo probé emitiendo la señal dentro del mismo proceso
+(`process.emit("SIGINT")`). En Windows no se le puede mandar un SIGINT real a
+otro proceso desde la terminal. Con **Ctrl + C** en la terminal donde corre
+el servidor aparecen los mismos dos mensajes.
+
+## Prueba de reinicio
+
+1. `GET /api/reservas`: cantidad inicial **1** (la del formulario).
+2. `POST /api/reservas`: 201, `id` **`6ae295b8b704934978e16d39`**,
+   `Location: /api/reservas/6ae295b8b704934978e16d39`.
+3. GET a la Location: 200, mismo id, `estado: "pendiente"`.
+4. Detuve el servidor y lo volví a iniciar con `node --env-file=.env src/index.js`.
+5. **Sin repetir el POST**:
+   - `GET /api/reservas/6ae295b8b704934978e16d39` → **200**, la misma
+     reserva (Ana Ejemplo, Sala Norte, Mañana, 2, pendiente);
+   - `GET /reservas/6ae295b8b704934978e16d39` (sitio) → **200**.
+6. Listado dos veces después del reinicio: **3 y 3** (Tomás Paz desde el
+   formulario, Ana Ejemplo y Bruno Ejemplo desde la API).
+
+Con el TP 07, al reiniciar el sitio volvía a sus 4 reservas de la semilla.
+Ahora no: los datos están en Atlas, no en el proceso de Node.
+
+## Cómo reproducir las solicitudes en Postman
+
+Importar `docs/tp08-reservas.postman_collection.json` en Postman de escritorio
+(*Import*). La variable de colección `base` vale `http://localhost:3000`. El
+POST válido guarda el `id` recibido en la variable `id`. Antes de enviar,
+iniciar el servidor con `npm run start:local`.
+
+| Solicitud | Método y URL | Body | Cabecera | Esperado |
+| --------- | ------------ | ---- | -------- | -------- |
+| Listado | `GET {{base}}/api/reservas` | none | - | 200 y arreglo |
+| Crear | `POST {{base}}/api/reservas` | raw / JSON (ver abajo) | `Content-Type: application/json` | 201, cuerpo con `id` y `estado: "pendiente"`, `Location` en los Headers de la **respuesta** |
+| Ver la creada | `GET {{base}}/api/reservas/{{id}}` | none | - | 200, mismo id |
+| ID inválido | `GET {{base}}/api/reservas/1` | none | - | 400 JSON |
+| ID inexistente | `GET {{base}}/api/reservas/000000000000000000000000` | none | - | 404 JSON |
+| Filtro | `GET {{base}}/api/reservas` con Params `sala = Sala Norte` | none | - | 200, solo Sala Norte |
+| Filtro repetido | dos filas `sala` activas con valores distintos | none | - | 400 |
+| Inválidas | `POST`, cambiando un campo por vez | raw / JSON | `Content-Type: application/json` | 400; después volver al listado y comparar la cantidad |
+| Sin cuerpo | `POST` | **none** | - | 400 |
+| JSON roto | `POST` | raw: `{"estudiante": "Ana", ` | `Content-Type: application/json` | 400 |
+
+Cuerpo de referencia (datos ficticios; no enviar `estado` ni `_id`):
+
+```json
+{
+  "estudiante": "Ana Ejemplo",
+  "email": "ana@example.com",
+  "sala": "Sala Norte",
+  "fecha": "2026-10-21",
+  "turno": "Mañana",
+  "personas": 2
+}
+```
+
+Cada POST válido crea **otra** reserva. Para demostrar la persistencia no
+hay que repetirlo: se reinicia el servidor y se repite el **GET** con el
+mismo id.
+
+### Evidencias
+
+| Evidencia | Dónde |
+| --------- | ----- |
+| Matriz completa de la API y el formulario | Tabla de arriba (registro de terminal) |
+| Postman: POST 201 con Location | `docs/postman-post-201.png` (**pendiente**) |
+| Postman: GET de la Location | `docs/postman-get-location.png` (**pendiente**) |
+| Postman: GET del mismo id después de reiniciar | `docs/postman-get-reinicio.png` (**pendiente**) |
+| Postman: un 400 y el 404 | `docs/postman-400-404.png` (**pendiente**) |
+| Data Explorer: `reservas_salas_u8` / `reservas` con el `_id` | `docs/data-explorer.png` (**pendiente**) |
+
+## Comparación con el TP 07
+
+| | TP 07 | TP 08 |
+| - | ----- | ----- |
+| Sitio | Arreglo en memoria, 4 reservas de semilla | MongoDB: lee y escribe en Atlas |
+| MongoDB | Solo desde los scripts de terminal | Sitio, API y scripts |
+| Servicio | Sincrónico (`listar()` devolvía un arreglo) | Asíncrono (`await servicio.listar()`) |
+| Identificador | Número consecutivo (el más alto + 1) | ObjectId, expuesto como `id` en texto |
+| Detalle | `Number(req.params.id)` | El texto tal cual; formato inválido → 400 |
+| Conexión | Los scripts conectan y cierran | El servidor conecta una vez, antes de escuchar, y cierra con SIGINT/SIGTERM |
+| API JSON | No había | `/api/reservas` con listado, detalle, filtro y alta |
+| Errores | 400/404 a mano | Además, middleware de errores con 400/500 sin trazas |
+| Estado | No existía | `estado` con default `"pendiente"` |
+| Al reiniciar | Las reservas nuevas desaparecían | Se recuperan las mismas |
+
+## Qué no se publica
+
+- `.env` está en `.gitignore`. Solo se sube `.env.example`, con marcadores.
+- Ni el servidor ni los scripts imprimen la URI. Los errores muestran tipo y
+  código, nunca el mensaje del driver.
+- La colección de Postman no tiene credenciales: solo `localhost` y datos
+  ficticios.
+- No se sube `node_modules/`, y sí `package-lock.json`.
