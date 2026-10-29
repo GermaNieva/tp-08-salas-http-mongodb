@@ -22,7 +22,7 @@ Los commits siguen los pasos de la clase:
 | Paso 2 | Campo `estado` con default en el modelo y servicio asíncrono `reservas-mongo.js` |
 | Paso 3 | Sitio conectado a MongoDB: arranque con una sola conexión, controlador async, validación de tipos y middleware de errores |
 | Paso 4 | Router de la API, simulación de fallo 500, cierre ordenado y `/estado` con errores en JSON |
-| README | Este documento, colección de Postman y evidencia |
+| README | Este documento, colección de Postman y evidencia (terminal, Postman y Atlas) |
 
 ## Versiones y Atlas
 
@@ -401,14 +401,44 @@ mismo id.
 
 ### Evidencias
 
-| Evidencia | Dónde |
-| --------- | ----- |
-| Matriz completa de la API y el formulario | Tabla de arriba (registro de terminal) |
-| Postman: POST 201 con Location | `docs/postman-post-201.png` (**pendiente**) |
-| Postman: GET de la Location | `docs/postman-get-location.png` (**pendiente**) |
-| Postman: GET del mismo id después de reiniciar | `docs/postman-get-reinicio.png` (**pendiente**) |
-| Postman: un 400 y el 404 | `docs/postman-400-404.png` (**pendiente**) |
-| Data Explorer: `reservas_salas_u8` / `reservas` con el `_id` | `docs/data-explorer.png` (**pendiente**) |
+Hay dos registros independientes.
+
+**1. Terminal.** La matriz completa de la tabla de arriba, con el script de
+`fetch` y `curl`.
+
+**2. Postman de escritorio.** Hice un recorrido aparte con la colección
+importada, en el mismo servidor y la misma base:
+
+1. **POST reserva válida**: **201 Created**, `id` `6ae2a81760025626898adcbf`,
+   `estado: "pendiente"`, `Location: /api/reservas/6ae2a81760025626898adcbf`.
+   Los dos tests de la colección pasaron (2/2).
+2. **GET reserva creada** (la URL de Location): **200**.
+3. Detuve el servidor con Ctrl + C, lo volví a iniciar con
+   `npm run start:local` y repetí el GET **sin repetir el POST**: **200**.
+   En la terminal del arranque nuevo se ve
+   `GET /api/reservas/6ae2a81760025626898adcbf 200`.
+4. `GET /api/reservas/1`: **400**
+   `{"error":"El identificador tiene que tener 24 caracteres hexadecimales.","campos":[]}`.
+5. `GET /api/reservas/000000000000000000000000`: **404**
+   `{"error":"Reserva no encontrada."}`.
+
+Ese POST de Postman fue la cuarta reserva de la base. Las otras tres son la
+del formulario (Tomás Paz), la de la matriz de terminal (Ana Ejemplo,
+`6ae295b8...`) y la de campos extra (Bruno Ejemplo). En Data Explorer se ven
+los 4 documentos.
+
+| Evidencia | Archivo |
+| --------- | ------- |
+| Postman: POST 201, cuerpo con `id` y `estado: "pendiente"` | [docs/postman-post-201.png](docs/postman-post-201.png) |
+| Postman: POST 201, cabecera `Location` en los Headers de la respuesta | [docs/postman-post-201-location.png](docs/postman-post-201-location.png) |
+| Postman: GET a la Location, 200 | [docs/postman-get-location.png](docs/postman-get-location.png) |
+| Postman: el mismo GET después de reiniciar, 200 | [docs/postman-get-reinicio.png](docs/postman-get-reinicio.png) |
+| Terminal del reinicio: conecta, escucha y responde 200 para `6ae2a817...` | [docs/terminal-reinicio.png](docs/terminal-reinicio.png) |
+| Postman: id `1`, 400 JSON | [docs/postman-400.png](docs/postman-400.png) |
+| Postman: id válido inexistente, 404 JSON | [docs/postman-404.png](docs/postman-404.png) |
+| Data Explorer: `reservas_salas_u8` / `reservas`, 4 documentos, con `6ae2a81760025626898adcbf` | [docs/data-explorer.png](docs/data-explorer.png) |
+
+En las capturas no aparecen la URI, las credenciales ni el `.env`.
 
 ## Comparación con el TP 07
 
