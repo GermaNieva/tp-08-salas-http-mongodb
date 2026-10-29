@@ -60,6 +60,16 @@ const reservaSchema = new mongoose.Schema(
         message: "La cantidad de personas tiene que ser un número entero.",
       },
     },
+    // Lo pone el servidor, no el cliente: toda reserva nueva arranca pendiente.
+    // El default se aplica al crear; no reescribe documentos viejos.
+    estado: {
+      type: String,
+      enum: {
+        values: ["pendiente", "confirmada"],
+        message: "El estado {VALUE} no existe.",
+      },
+      default: "pendiente",
+    },
   },
   // Coleccion explicita, para no depender de como Mongoose arma el plural.
   { collection: "reservas" },
